@@ -1,0 +1,451 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>Path Profile Calculator</title>
+
+<script type="text/javascript">
+function calc() {
+	var y1 = parseFloat(document.getElementById('tx_height').value);
+	
+	var x2 = parseFloat(document.getElementById('rx_dist').value);
+	var y2 = parseFloat(document.getElementById('rx_height').value);
+	
+	var g1 = parseFloat(document.getElementById('tx_gain').value);
+	var g2 = parseFloat(document.getElementById('rx_gain').value);
+	
+	var P = parseFloat(document.getElementById('tx_power').value);
+	var f = parseFloat(document.getElementById('freq').value);
+	var e = parseFloat(document.getElementById('e_constant').value);
+	var loss = document.getElementById('loss_type').value;
+	
+	var D = x2;
+	
+	if(loss == 1) {
+		var L = lossLOS(y1, y2, D, f, e);
+	}else if(loss == 2) {
+		var obstacles = getObstacles(D);
+		var H = getH(obstacles);
+		var L = lossSingle(H, D, f);
+	}
+	else if(loss == 3) {
+		var obstacles = getObstacles(D);
+		var H = getH(obstacles);
+		var L = lossMultiple(H, D, f);
+	}else {
+		alert('Please indicate your type of path loss.');
+	}
+	
+	plotGraph();
+	
+	//get S/N Ratio
+	var sn = snRatio(P, g1, g2, L);
+	
+	document.getElementById('result_loss').value = L;
+	document.getElementById('result_snr').value = sn;
+	
+	//alert('L: ' + L + '\nS/N: ' + sn);
+}
+
+//returns array of obstacles in ascending order relative to distance
+function distSortAsc(a, b) {
+	a = a['d'];
+	b = b['d'];
+	
+	return a-b;
+}
+
+//return highest value of H
+function getH(obstacles) {
+	//gradient(m) of LOS
+	var m = getM();
+	//get c of LOS equation
+	var c = parseFloat(document.getElementById('tx_height').value);
+	
+	var H = 0;
+	
+	//get height(y) of LOS at distance(x) of obstacle
+	for(var i=0;i<obstacles.length;i++) {
+		//get height of LOS at this obstacle's distance
+		var hLOS = m*obstacles[i]['d'] + c;
+		
+		//get the difference of obstacle height and LOS height
+		var difference = obstacles[i]['h'] - hLOS;
+		
+		if(difference > H) {
+			H = difference;
+		}
+	}
+	
+	//alert('m: ' + m + '\nc: ' + c + '\nH: ' + H);
+	
+	return H;
+}
+
+//return gradient of LOS
+function getM() {
+	var y1 = parseFloat(document.getElementById('tx_height').value);
+	var x1 = parseFloat(document.getElementById('tx_dist').value);
+	
+	var y2 = parseFloat(document.getElementById('rx_height').value);
+	var x2 = parseFloat(document.getElementById('rx_dist').value);
+	
+	var m = (y2 - y1) / (x2 - x1);
+	
+	return m;
+}
+
+//returns an array of entered obstacles in ascending order relative to distance
+function getObstacles(x_max) {
+	var obs_dist = document.getElementsByClassName('obs_dist');
+	var obs_height = document.getElementsByClassName('obs_height');
+	
+	var obstacles = new Array();
+	
+	for(var i=0; i<obs_dist.length; i++) {
+		var dist = parseFloat(obs_dist[i].value);
+		var height = parseFloat(obs_height[i].value);
+		
+		if(!isNaN(dist) && !isNaN(height) && dist > 0 && dist<x_max) {
+			obstacles.push({d:dist, h:height});
+		}
+	}
+	
+	obstacles.sort(distSortAsc);
+	
+	return obstacles;
+}
+
+//returns Path Loss of Line Of Sight
+function lossLOS(h1, h2, D, f, e) {
+	//h1 = height of tranmistter antenna
+	//h2 = height of receiver antenna
+	//D = distance from transmitting antenna to receiving antenna
+	//f = frequency
+	//e = dielectric constant
+	var a = ((5.21 * Math.pow(10, -6))) / Math.pow(f*D, 4);
+	var b = Math.pow((e*e)/(e-1), 2);
+	var c = 1 + 438 * Math.pow(f * h1, 2) * ((e-1) / Math.pow(e, 2));
+	var d = 1 + 438 * Math.pow(f * h2, 2) * ((e-1) / Math.pow(e, 2));
+	
+	var L = -10 * lg(a*b*c*d);
+	
+	return L;
+}
+
+//returns Path Loss for Single Obstacle
+function lossSingle(H, D, f) {
+	//H = height value from LOS to obstacle
+	//D = distance from transmitting antenna to receiving antenna
+	//f = frequency
+	var L = 66.2 + 1070*(H/D) - 7500*(Math.pow(H/D, 2)) + 0.00268*f + 28.34*(lg(f)) + 0.879*D - 0.00378*(Math.pow(D, 2));
+	return L;
+}
+
+//returns Path Loss for Multiple Obstacles
+function lossMultiple(H, D, f) {
+	//H = highest value from LOS to obstacle
+	//D = distance from transmitting antenna to receiving antenna
+	//f = frequency
+	var L = 119.9 + 287*(H/D) - 11000*(Math.pow(H/D, 2)) + 0.00425*f + 14.98*(lg(f)) + 0.541*D - 0.00159*(Math.pow(D, 2));
+	return L;
+}
+
+//returns Signal-to-Noise Ratio
+function snRatio(P, g1, g2, L) {
+	var sn = 10 * lg(P) + g1 + g2 - L + 128;
+	return sn;
+}
+
+//to convert from log e to log 10
+function lg(f) {
+	return Math.log(f) / Math.log(10);
+}
+
+//to draw line graph of obstacles and LOS
+function plotGraph() {
+	var x_max = document.getElementById('rx_dist').value;
+	var obstacles = getObstacles(x_max);
+	
+	var y_max = getMaxY(obstacles);
+	
+	var y1 = parseFloat(document.getElementById('tx_height').value);
+	var y2 = parseFloat(document.getElementById('rx_height').value);
+	
+	obstacles.push({d:x_max,h:y2});
+	
+	var canvas = document.getElementById('graph');
+	var ctx = canvas.getContext('2d');
+	
+	//clear canvas
+	ctx.clearRect(0, 0, canvas.width, canvas.height);
+	
+	//draw line of obstacles
+	ctx.beginPath();
+	ctx.strokeStyle = "black";
+	ctx.moveTo(0, convertY(y1, y_max));
+	
+	for(var i=0;i<obstacles.length;i++) {
+		//alert('Distance: ' + obstacles[i]['d'] + '\nHeight: ' + obstacles[i]['h']);
+		ctx.lineTo(convertX(obstacles[i]['d'], x_max), convertY(obstacles[i]['h'], y_max));
+	}
+	
+	ctx.stroke();
+	
+	//draw LOS
+	ctx.beginPath();
+	ctx.strokeStyle = "red";
+	ctx.moveTo(0, convertY(y1, y_max));
+	ctx.lineTo(300, convertY(y2, y_max));
+	ctx.stroke();
+}
+
+function convertX(i, maxVal) {
+	//300 is the width of the canvas
+	i *= (300/maxVal);
+	return i;
+}
+
+function convertY(i, maxVal) {
+	//150 is the height of the canvas
+	i *= (150/maxVal);
+	i *= -1;
+	i += 160;
+	return i;
+}
+
+//returns the max height of obstacle or antenna
+function getMaxY(obstacles) {
+	var y1 = parseFloat(document.getElementById('tx_height').value);
+	var y2 = parseFloat(document.getElementById('rx_height').value);
+	
+	var y_max = (y1 > y2) ? y1 : y2 ;
+	
+	for(var i=0;i<obstacles.length;i++) {
+		y_max = (obstacles[i]['h'] > y_max) ? obstacles[i]['h'] : y_max;
+	}
+	
+	return y_max;
+}
+
+//adds new input for obstacle
+function addObstacle() {
+	var row = document.createElement('tr');
+	var dataD = document.createElement('td');
+	var dataH = document.createElement('td');
+	var dataR = document.createElement('td');
+	
+	dataD.innerHTML = 'Distance (km): <input type="text" class="obs_dist" size="5" value="" />';
+	dataH.innerHTML = 'Height (km): <input type="text" class="obs_height" size="5" value="" />';
+	dataR.innerHTML = '<a href="javascript:void(0);" onclick="remove(this);">Remove</a>';
+	
+	row.appendChild(dataD);
+	row.appendChild(dataH);
+	row.appendChild(dataR);
+	
+	var append = document.getElementById('obstacles_tbl').appendChild(row);
+}
+
+//removes the selected input of obstacle
+function remove(row) {
+	row.parentNode.parentNode.parentNode.removeChild(row.parentNode.parentNode);
+}
+</script>
+
+<style type="text/css">
+body {
+	font-family: Arial, Helvetica, sans-serif;
+	font-size: 10pt;
+}
+
+td {
+ 	vertical-align: top;
+}
+
+h3 {
+	font-size: 11pt;
+	padding: 0;
+	margin: 0;
+}
+
+#single table {
+
+}
+
+#single tr td {
+	padding: 5px;
+	margin: 0;
+	vertical-align: top;
+}
+
+#single h3 {
+	font-size: 11pt;
+	padding: 0;
+	margin: 0;
+}
+
+#single input {
+	margin: 0;
+	margin-bottom: 5px;
+}
+
+#obstacles_tbl td {
+	padding: 0;
+	margin: 0;
+	vertical-align: middle;
+}
+
+#obstacles_tbl input {
+	margin: 0;
+}
+
+#misc_tbl td {
+	padding: 0;
+	margin: 0;
+	vertical-align: top;
+}
+
+#graph {
+	border: thin solid #333333;
+	margin: 0;
+	margin-bottom: 10px;
+	padding: 0;
+}
+</style>
+
+</head>
+
+<body>
+
+<table border="0">
+	<tr>
+    	<td>
+        	<canvas id="graph" width="300" height="160"></canvas>
+        </td>
+        
+        <td>
+        	<h3>Result</h3>
+            <br />
+            Path Loss (L in dB):
+            <br />
+            <input type="text" id="result_loss" value="" disabled="disabled" />
+            <br /><br />
+            S/N (dB):
+            <br />
+            <input type="text" id="result_snr" value="" disabled="disabled" />
+        </td>
+	</tr>
+</table>
+
+<form id="single">
+    <table border="0">
+    	<tr>
+        	<td><h3>Path Profile Calculator</h3></td>
+        </tr>
+        <tr>
+        	<td>
+            	<h3 style="margin:0;">Transmitter</h3>
+                Distance (km):
+                <br />
+                <input type="text" id="tx_dist" value="0" disabled="disabled" />
+                <br />
+            	Height (km):
+                <br />
+                <input type="text" id="tx_height" value="0.02"/>
+            </td>
+            
+            <td>
+            	<h3 style="margin:0;">Receiver</h3>
+                Distance (km):
+                <br />
+                <input type="text" id="rx_dist" value="5"/>
+            	<br />
+            	Height (km):
+                <br />
+                <input type="text" id="rx_height" value="0.2" />
+            </td>            
+        </tr>
+    </table>
+        
+    <table border="0" id="obstacles_tbl">
+    	<tr>
+        	<td colspan="3">
+            	<h3>Obstacle(s)</h3>
+            </td>
+        </tr>
+        
+        <tr>
+        	<td colspan="3">
+            	<input type="button" id="btn_add_obs" value="Add Obstacle" onclick="addObstacle();" />
+            	<input type="button" id="btn_plot" value="Plot Graph" onclick="plotGraph();" />
+            </td>
+        </tr>
+        
+        <tr id="lol">
+        	<td>Distance (km): <input type="text" class="obs_dist" size="5" value="" /></td>
+            <td>Height (km): <input type="text" class="obs_height" size="5" value="" /></td>
+            <td><a href="javascript:void(0);" id="haha" onclick="remove(this);">Remove</a></td>
+        </tr>
+    </table>
+    
+    <table border="0" id="misc_tbl">        
+        <tr>
+        	 <td>
+            	<h3>Antenna Gain</h3>
+                Transmitter:<br />
+                <select id="tx_gain" style="width:150px">
+                    <option value="1" selected="selected">1 (Short Ant)</option>
+                    <option value="1.5">1.5 (Long Ant)</option>
+                    <option value="2.15">2.15 (Vehicular/Dipole)</option>
+                </select>
+                <br />
+                
+                Receiver:<br />
+                <select id="rx_gain" style="width:150px">
+                    <option value="1" selected="selected">1 (Short Ant)</option>
+                    <option value="1.5">1.5 (Long Ant)</option>
+                    <option value="2.15">2.15 (Vehicular/Dipole)</option>
+                </select>
+                <br />
+            </td>
+            
+        	<td>
+            	<h3>Frequency</h3>
+                Frequency (MHz):<br />
+                <input type="text" id="freq" value="65.050" />
+                <br />
+            </td>
+            
+            <td>
+            	<h3>Dielectric Constant</h3>
+                Dielectric Constant (e):<br />
+                <input type="text" id="e_constant" value="5" />
+            </td>
+        </tr>
+        <tr>
+        	<td>
+            	<h3>Power</h3>
+                Transmitter Output (w):<br />
+                <input type="text" id="tx_power" value="0.25" />
+                <br />
+            </td>
+        	<td>
+            	<h3>Path Loss Type</h3>
+                Path Loss (L in dB):<br />
+                <select id="loss_type" style="width:150px">
+                	<option value="1" selected="selected">Line Of Sight</option>
+                    <option value="2">Single Obstacle</option>
+                    <option value="3">Multiple Obstacles</option>
+                </select>
+            </td>
+        </tr>
+        <tr>
+        	<td colspan="3">
+            	<input type="button" id="btn_calc" value="Calculate!" onclick="calc();"/>
+            </td>
+        </tr>
+    </table>
+</form>
+
+</body>
+</html>
